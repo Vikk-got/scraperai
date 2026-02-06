@@ -12,49 +12,20 @@ serve(async (req) => {
 
   try {
     const { prompt, brandColors, style } = await req.json();
-    const DEEPAI_API_KEY = Deno.env.get("DEEPAI_API_KEY");
-    
-    if (!DEEPAI_API_KEY) {
-      throw new Error("DEEPAI_API_KEY is not configured");
-    }
 
     const enhancedPrompt = `${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Professional, high-quality design.`;
 
-    // DeepAI Text to Image API
-    const formData = new FormData();
-    formData.append("text", enhancedPrompt);
+    // Use Pollinations.ai - free, no API key required
+    const encodedPrompt = encodeURIComponent(enhancedPrompt);
+    const seed = Math.floor(Math.random() * 999999999);
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${seed}&nologo=true`;
 
-    const response = await fetch("https://api.deepai.org/api/text2img", {
-      method: "POST",
-      headers: {
-        "api-key": DEEPAI_API_KEY,
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402 || response.status === 401) {
-        return new Response(JSON.stringify({ error: "API key invalid or credits exhausted." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const errorText = await response.text();
-      console.error("DeepAI API error:", response.status, errorText);
-      throw new Error(`DeepAI API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const imageUrl = data.output_url;
-
-    if (!imageUrl) {
-      throw new Error("No image URL returned from DeepAI");
+    // Verify the image URL is accessible
+    const checkResponse = await fetch(imageUrl, { method: "HEAD" });
+    
+    if (!checkResponse.ok) {
+      console.error("Pollinations API error:", checkResponse.status);
+      throw new Error(`Image generation failed: ${checkResponse.status}`);
     }
 
     return new Response(JSON.stringify({ imageUrl, description: `Generated image: ${prompt}` }), {
