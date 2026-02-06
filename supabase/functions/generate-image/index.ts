@@ -1,30 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-// Retry function with exponential backoff
-async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await fetch(url, options);
-      if (response.ok) return response;
-      if (response.status === 502 || response.status === 503) {
-        // Server error, wait and retry
-        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
-        continue;
-      }
-      return response; // Return non-retryable errors
-    } catch (error) {
-      if (i === maxRetries - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
-    }
-  }
-  throw new Error("Max retries exceeded");
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -33,100 +12,52 @@ serve(async (req) => {
 
   try {
     const { prompt, brandColors, style } = await req.json();
-
-    if (!prompt) {
-      throw new Error("Prompt is required");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    const enhancedPrompt = `${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Professional, high-quality design.`;
+    const enhancedPrompt = `Create a professional, high-quality image: ${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Ultra high resolution, professional design.`;
 
-    console.log("Generating image with Hugging Face Space...");
-
-    // Use the public Hugging Face Gradio Space API for FLUX
-    const spaceUrl = "https://black-forest-labs-flux-1-schnell.hf.space/call/infer";
-    
-    // Submit the generation request
-    const submitResponse = await fetchWithRetry(spaceUrl, {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        data: [
-          enhancedPrompt, // prompt
-          0, // seed (0 = random)
-          true, // randomize_seed
-          512, // width
-          512, // height
-          4 // num_inference_steps
-        ]
+        model: "google/gemini-2.5-flash-image",
+        messages: [
+          { role: "user", content: enhancedPrompt },
+        ],
+        modalities: ["image", "text"],
       }),
-    }, 3);
+    });
 
-    if (!submitResponse.ok) {
-      const errorText = await submitResponse.text();
-      console.error("HF Space submit error:", submitResponse.status, errorText);
-      throw new Error(`Image generation failed: ${submitResponse.status}`);
-    }
-
-    const submitData = await submitResponse.json();
-    const eventId = submitData.event_id;
-
-    if (!eventId) {
-      throw new Error("No event ID returned from HF Space");
-    }
-
-    console.log("Got event ID:", eventId);
-
-    // Poll for the result
-    const resultUrl = `${spaceUrl}/${eventId}`;
-    let imageUrl = null;
-    let attempts = 0;
-    const maxAttempts = 30;
-
-    while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const resultResponse = await fetch(resultUrl, {
-        headers: { "Accept": "text/event-stream" }
-      });
-      
-      const resultText = await resultResponse.text();
-      
-      // Parse SSE response
-      const lines = resultText.split("\n");
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data && Array.isArray(data) && data[0]) {
-              // The response contains the image URL or base64
-              const imageData = data[0];
-              if (typeof imageData === "object" && imageData.url) {
-                imageUrl = imageData.url;
-                break;
-              } else if (typeof imageData === "string" && imageData.startsWith("http")) {
-                imageUrl = imageData;
-                break;
-              }
-            }
-          } catch {
-            // Continue parsing
-          }
-        }
+    if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
-      
-      if (imageUrl) break;
-      attempts++;
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add more credits." }), {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const errorText = await response.text();
+      console.error("Image generation error:", response.status, errorText);
+      throw new Error(`Image generation error: ${response.status}`);
     }
 
-    if (!imageUrl) {
-      throw new Error("Image generation timed out");
-    }
+    const data = await response.json();
+    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    const textContent = data.choices?.[0]?.message?.content;
 
-    console.log("Image generated successfully");
-
-    return new Response(JSON.stringify({ imageUrl, description: `Generated image: ${prompt}` }), {
+    return new Response(JSON.stringify({ imageUrl, description: textContent }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
