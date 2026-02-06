@@ -32,7 +32,7 @@ serve(async (req) => {
       caption: `Write a caption for: ${topic}. ${tone ? `Tone: ${tone}.` : ''} ${additionalContext || ''}`,
     };
 
-    console.log("Generating content with OpenRouter DeepSeek R1 0528 (free)...");
+    console.log("Generating content with Claude 3 Haiku...");
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -43,7 +43,7 @@ serve(async (req) => {
         "X-Title": "Phoenix Content Generator",
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-r1-0528:free",
+        model: "anthropic/claude-3-haiku",
         messages: [
           { role: "system", content: systemPrompts[type] || systemPrompts.blog },
           { role: "user", content: userPrompts[type] || userPrompts.blog },
