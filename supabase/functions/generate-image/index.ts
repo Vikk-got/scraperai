@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,27 +12,24 @@ serve(async (req) => {
 
   try {
     const { prompt, brandColors, style } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const DEEPAI_API_KEY = Deno.env.get("DEEPAI_API_KEY");
     
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    if (!DEEPAI_API_KEY) {
+      throw new Error("DEEPAI_API_KEY is not configured");
     }
 
-    const enhancedPrompt = `Create a professional, high-quality image: ${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Ultra high resolution, professional design.`;
+    const enhancedPrompt = `${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Professional, high-quality design.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // DeepAI Text to Image API
+    const formData = new FormData();
+    formData.append("text", enhancedPrompt);
+
+    const response = await fetch("https://api.deepai.org/api/text2img", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
+        "api-key": DEEPAI_API_KEY,
       },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
-        messages: [
-          { role: "user", content: enhancedPrompt },
-        ],
-        modalities: ["image", "text"],
-      }),
+      body: formData,
     });
 
     if (!response.ok) {
@@ -43,22 +39,25 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add more credits." }), {
+      if (response.status === 402 || response.status === 401) {
+        return new Response(JSON.stringify({ error: "API key invalid or credits exhausted." }), {
           status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const errorText = await response.text();
-      console.error("Image generation error:", response.status, errorText);
-      throw new Error(`Image generation error: ${response.status}`);
+      console.error("DeepAI API error:", response.status, errorText);
+      throw new Error(`DeepAI API error: ${response.status}`);
     }
 
     const data = await response.json();
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    const textContent = data.choices?.[0]?.message?.content;
+    const imageUrl = data.output_url;
 
-    return new Response(JSON.stringify({ imageUrl, description: textContent }), {
+    if (!imageUrl) {
+      throw new Error("No image URL returned from DeepAI");
+    }
+
+    return new Response(JSON.stringify({ imageUrl, description: `Generated image: ${prompt}` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
