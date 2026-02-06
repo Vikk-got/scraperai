@@ -11,13 +11,15 @@ import {
   LayoutDashboard,
   Menu,
   X,
-  Home
+  Home,
+  Youtube
 } from "lucide-react";
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "writer", label: "Content Writer", icon: PenLine },
   { id: "images", label: "Image Generator", icon: Image },
+  { id: "youtube", label: "YouTube Scraper", icon: Youtube },
   { id: "scheduler", label: "Smart Scheduler", icon: Clock },
   { id: "brand", label: "Brand Settings", icon: Palette },
 ];

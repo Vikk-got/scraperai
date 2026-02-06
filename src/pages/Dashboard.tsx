@@ -3,6 +3,7 @@ import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { ContentManager } from "@/components/dashboard/ContentManager";
 import { ContentWriter } from "@/components/dashboard/ContentWriter";
 import { ImageGenerator } from "@/components/dashboard/ImageGenerator";
+import { YouTubeScraper } from "@/components/dashboard/YouTubeScraper";
 import { Scheduler } from "@/components/dashboard/Scheduler";
 import { BrandSettings } from "@/components/dashboard/BrandSettings";
 
@@ -17,6 +18,8 @@ const Dashboard = () => {
         return <ContentWriter />;
       case "images":
         return <ImageGenerator />;
+      case "youtube":
+        return <YouTubeScraper />;
       case "scheduler":
         return <Scheduler />;
       case "brand":
