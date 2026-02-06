@@ -1,9 +1,30 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+// Retry function with exponential backoff
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok) return response;
+      if (response.status === 502 || response.status === 503) {
+        // Server error, wait and retry
+        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+        continue;
+      }
+      return response; // Return non-retryable errors
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+    }
+  }
+  throw new Error("Max retries exceeded");
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -12,86 +33,98 @@ serve(async (req) => {
 
   try {
     const { prompt, brandColors, style } = await req.json();
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    
-    if (!OPENROUTER_API_KEY) {
-      throw new Error("OPENROUTER_API_KEY is not configured");
-    }
 
     if (!prompt) {
       throw new Error("Prompt is required");
     }
 
-    const enhancedPrompt = `Create a professional image: ${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} High-quality, professional design.`;
+    const enhancedPrompt = `${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Professional, high-quality design.`;
 
-    console.log("Generating image with OpenRouter...");
+    console.log("Generating image with Hugging Face Space...");
 
-    // Use OpenRouter's image generation with Gemini Flash Image model
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    // Use the public Hugging Face Gradio Space API for FLUX
+    const spaceUrl = "https://black-forest-labs-flux-1-schnell.hf.space/call/infer";
+    
+    // Submit the generation request
+    const submitResponse = await fetchWithRetry(spaceUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://lovable.dev",
-        "X-Title": "Phoenix Image Generator",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-exp:free",
-        messages: [
-          { 
-            role: "user", 
-            content: enhancedPrompt
-          }
-        ],
-        modalities: ["image", "text"],
+        data: [
+          enhancedPrompt, // prompt
+          0, // seed (0 = random)
+          true, // randomize_seed
+          512, // width
+          512, // height
+          4 // num_inference_steps
+        ]
       }),
-    });
+    }, 3);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("OpenRouter error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw new Error(`Image generation failed: ${response.status}`);
+    if (!submitResponse.ok) {
+      const errorText = await submitResponse.text();
+      console.error("HF Space submit error:", submitResponse.status, errorText);
+      throw new Error(`Image generation failed: ${submitResponse.status}`);
     }
 
-    const data = await response.json();
-    console.log("OpenRouter response received");
+    const submitData = await submitResponse.json();
+    const eventId = submitData.event_id;
 
-    // Extract image from response - OpenRouter returns images in the message
-    const message = data.choices?.[0]?.message;
+    if (!eventId) {
+      throw new Error("No event ID returned from HF Space");
+    }
+
+    console.log("Got event ID:", eventId);
+
+    // Poll for the result
+    const resultUrl = `${spaceUrl}/${eventId}`;
     let imageUrl = null;
+    let attempts = 0;
+    const maxAttempts = 30;
 
-    // Check for images array in the message
-    if (message?.images && message.images.length > 0) {
-      imageUrl = message.images[0]?.image_url?.url || message.images[0]?.url;
-    }
-    
-    // Check for inline image in content (base64)
-    if (!imageUrl && message?.content) {
-      // Some models return base64 directly in content
-      const base64Match = message.content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/);
-      if (base64Match) {
-        imageUrl = base64Match[0];
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const resultResponse = await fetch(resultUrl, {
+        headers: { "Accept": "text/event-stream" }
+      });
+      
+      const resultText = await resultResponse.text();
+      
+      // Parse SSE response
+      const lines = resultText.split("\n");
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data && Array.isArray(data) && data[0]) {
+              // The response contains the image URL or base64
+              const imageData = data[0];
+              if (typeof imageData === "object" && imageData.url) {
+                imageUrl = imageData.url;
+                break;
+              } else if (typeof imageData === "string" && imageData.startsWith("http")) {
+                imageUrl = imageData;
+                break;
+              }
+            }
+          } catch {
+            // Continue parsing
+          }
+        }
       }
+      
+      if (imageUrl) break;
+      attempts++;
     }
 
     if (!imageUrl) {
-      console.log("No image in response, returning text description");
-      // If no image, return a placeholder message
-      return new Response(JSON.stringify({ 
-        error: "This model doesn't support image generation. Try upgrading to a paid image model.",
-        description: message?.content 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      throw new Error("Image generation timed out");
     }
+
+    console.log("Image generated successfully");
 
     return new Response(JSON.stringify({ imageUrl, description: `Generated image: ${prompt}` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
