@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export const HeroSection = () => {
   return (
@@ -56,13 +57,17 @@ export const HeroSection = () => {
             transition={{ duration: 0.6, delay: 0.4 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Button variant="hero" size="xl">
-              Start Creating Free
-              <ArrowRight className="w-5 h-5" />
-            </Button>
-            <Button variant="heroOutline" size="xl">
-              Watch Demo
-            </Button>
+            <Link to="/dashboard">
+              <Button variant="hero" size="xl">
+                Start Creating Free
+                <ArrowRight className="w-5 h-5" />
+              </Button>
+            </Link>
+            <Link to="/dashboard">
+              <Button variant="heroOutline" size="xl">
+                Try the Demo
+              </Button>
+            </Link>
           </motion.div>
 
           {/* Trust indicators */}

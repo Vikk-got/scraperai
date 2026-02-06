@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export const CTASection = () => {
   return (
@@ -25,10 +26,12 @@ export const CTASection = () => {
             <p className="text-muted-foreground max-w-xl mx-auto mb-8 text-lg">
               Join thousands of creators who save hours every week with AI-powered content that actually sounds like them.
             </p>
-            <Button variant="hero" size="xl">
-              Get Started Free
-              <ArrowRight className="w-5 h-5" />
-            </Button>
+            <Link to="/dashboard">
+              <Button variant="hero" size="xl">
+                Get Started Free
+                <ArrowRight className="w-5 h-5" />
+              </Button>
+            </Link>
             <p className="mt-6 text-sm text-muted-foreground">
               No credit card required • Free plan available
             </p>

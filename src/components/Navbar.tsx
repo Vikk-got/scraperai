@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export const Navbar = () => {
   return (
@@ -13,12 +14,12 @@ export const Navbar = () => {
       <div className="container px-4">
         <nav className="flex items-center justify-between h-16 mt-4 px-6 rounded-xl glass-card">
           {/* Logo */}
-          <a href="/" className="flex items-center gap-2">
+          <Link to="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-[hsl(28_95%_55%)] flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-primary-foreground" />
             </div>
             <span className="font-semibold text-lg">ContentAI</span>
-          </a>
+          </Link>
 
           {/* Nav links */}
           <div className="hidden md:flex items-center gap-8">
@@ -35,12 +36,16 @@ export const Navbar = () => {
 
           {/* CTA */}
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
-              Log in
-            </Button>
-            <Button variant="hero" size="sm">
-              Get Started
-            </Button>
+            <Link to="/dashboard">
+              <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
+                Dashboard
+              </Button>
+            </Link>
+            <Link to="/dashboard">
+              <Button variant="hero" size="sm">
+                Get Started
+              </Button>
+            </Link>
           </div>
         </nav>
       </div>
