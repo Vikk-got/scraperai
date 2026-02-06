@@ -12,10 +12,10 @@ serve(async (req) => {
 
   try {
     const { type, topic, tone, brandStyle, additionalContext } = await req.json();
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    const NVIDIA_DEEPSEEK_API_KEY = Deno.env.get("NVIDIA_DEEPSEEK_API_KEY");
     
-    if (!OPENROUTER_API_KEY) {
-      throw new Error("OPENROUTER_API_KEY is not configured");
+    if (!NVIDIA_DEEPSEEK_API_KEY) {
+      throw new Error("NVIDIA_DEEPSEEK_API_KEY is not configured");
     }
 
     const systemPrompts: Record<string, string> = {
@@ -32,39 +32,44 @@ serve(async (req) => {
       caption: `Write a caption for: ${topic}. ${tone ? `Tone: ${tone}.` : ''} ${additionalContext || ''}`,
     };
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    console.log("Generating content with NVIDIA DeepSeek v3.2...");
+
+    // Use NVIDIA API with DeepSeek v3.2 model (OpenAI-compatible)
+    const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        "Authorization": `Bearer ${NVIDIA_DEEPSEEK_API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://lovable.dev",
-        "X-Title": "Phoenix Content Generator",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-exp:free",
+        model: "deepseek-ai/deepseek-v3.2",
         messages: [
           { role: "system", content: systemPrompts[type] || systemPrompts.blog },
           { role: "user", content: userPrompts[type] || userPrompts.blog },
         ],
+        temperature: 1,
+        top_p: 0.95,
+        max_tokens: 8192,
       }),
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error("NVIDIA API error:", response.status, errorText);
+      
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "API credits exhausted. Please add more credits." }), {
-          status: 402,
+      if (response.status === 401 || response.status === 403) {
+        return new Response(JSON.stringify({ error: "Invalid API key or unauthorized." }), {
+          status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const errorText = await response.text();
-      console.error("OpenRouter API error:", response.status, errorText);
-      throw new Error(`OpenRouter API error: ${response.status}`);
+      throw new Error(`NVIDIA API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
