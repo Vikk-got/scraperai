@@ -12,10 +12,10 @@ serve(async (req) => {
 
   try {
     const { type, topic, tone, brandStyle, additionalContext } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    if (!OPENROUTER_API_KEY) {
+      throw new Error("OPENROUTER_API_KEY is not configured");
     }
 
     const systemPrompts: Record<string, string> = {
@@ -32,14 +32,16 @@ serve(async (req) => {
       caption: `Write a caption for: ${topic}. ${tone ? `Tone: ${tone}.` : ''} ${additionalContext || ''}`,
     };
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://lovable.dev",
+        "X-Title": "Phoenix Content Generator",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.0-flash-exp:free",
         messages: [
           { role: "system", content: systemPrompts[type] || systemPrompts.blog },
           { role: "user", content: userPrompts[type] || userPrompts.blog },
@@ -55,14 +57,14 @@ serve(async (req) => {
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add more credits." }), {
+        return new Response(JSON.stringify({ error: "API credits exhausted. Please add more credits." }), {
           status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      throw new Error(`AI gateway error: ${response.status}`);
+      console.error("OpenRouter API error:", response.status, errorText);
+      throw new Error(`OpenRouter API error: ${response.status}`);
     }
 
     const data = await response.json();
