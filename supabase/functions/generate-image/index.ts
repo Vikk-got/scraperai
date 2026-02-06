@@ -12,10 +12,10 @@ serve(async (req) => {
 
   try {
     const { prompt, brandColors, style } = await req.json();
-    const BYTEZ_API_KEY = Deno.env.get("BYTEZ_API_KEY");
+    const NVIDIA_API_KEY = Deno.env.get("NVIDIA_API_KEY");
     
-    if (!BYTEZ_API_KEY) {
-      throw new Error("BYTEZ_API_KEY is not configured");
+    if (!NVIDIA_API_KEY) {
+      throw new Error("NVIDIA_API_KEY is not configured");
     }
 
     if (!prompt) {
@@ -24,23 +24,29 @@ serve(async (req) => {
 
     const enhancedPrompt = `${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Professional, high-quality, detailed.`;
 
-    console.log("Generating image with Bytez Stable Diffusion XL...");
+    console.log("Generating image with NVIDIA Stable Diffusion 3.5 Large...");
 
-    // Use Bytez API with Stable Diffusion XL
-    const response = await fetch("https://api.bytez.com/models/v2/stabilityai/stable-diffusion-xl-base-1.0", {
+    // Use NVIDIA API with Stable Diffusion 3.5 Large
+    const response = await fetch("https://ai.api.nvidia.com/v1/genai/stabilityai/stable-diffusion-3-5-large", {
       method: "POST",
       headers: {
-        "Authorization": BYTEZ_API_KEY,
+        "Authorization": `Bearer ${NVIDIA_API_KEY}`,
         "Content-Type": "application/json",
+        "Accept": "application/json",
       },
       body: JSON.stringify({
-        text: enhancedPrompt,
+        prompt: enhancedPrompt,
+        cfg_scale: 5,
+        aspect_ratio: "1:1",
+        seed: 0,
+        steps: 50,
+        negative_prompt: "blurry, low quality, distorted, ugly, bad anatomy",
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Bytez API error:", response.status, errorText);
+      console.error("NVIDIA API error:", response.status, errorText);
       
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
@@ -48,7 +54,7 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 401) {
+      if (response.status === 401 || response.status === 403) {
         return new Response(JSON.stringify({ error: "Invalid API key." }), {
           status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -58,36 +64,24 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    console.log("Bytez response:", JSON.stringify(data).slice(0, 200));
+    console.log("NVIDIA response keys:", Object.keys(data));
 
-    // The response contains the image - could be base64 or URL
+    // NVIDIA returns base64 image in the 'image' field
     let imageUrl = null;
     
-    if (data.output) {
-      // Check if output is a base64 string
-      if (typeof data.output === "string") {
-        if (data.output.startsWith("data:image")) {
-          imageUrl = data.output;
-        } else if (data.output.startsWith("http")) {
-          imageUrl = data.output;
-        } else {
-          // Assume it's raw base64
-          imageUrl = `data:image/png;base64,${data.output}`;
-        }
-      } else if (Array.isArray(data.output) && data.output.length > 0) {
-        const firstOutput = data.output[0];
-        if (typeof firstOutput === "string") {
-          if (firstOutput.startsWith("data:image") || firstOutput.startsWith("http")) {
-            imageUrl = firstOutput;
-          } else {
-            imageUrl = `data:image/png;base64,${firstOutput}`;
-          }
-        }
+    if (data.image) {
+      // The image is returned as base64
+      imageUrl = `data:image/png;base64,${data.image}`;
+    } else if (data.artifacts && Array.isArray(data.artifacts) && data.artifacts.length > 0) {
+      // Alternative response format with artifacts array
+      const artifact = data.artifacts[0];
+      if (artifact.base64) {
+        imageUrl = `data:image/png;base64,${artifact.base64}`;
       }
     }
 
     if (!imageUrl) {
-      console.error("No image URL in response:", JSON.stringify(data));
+      console.error("No image in response:", JSON.stringify(data).slice(0, 500));
       throw new Error("No image generated");
     }
 
