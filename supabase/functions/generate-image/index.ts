@@ -13,20 +13,17 @@ serve(async (req) => {
   try {
     const { prompt, brandColors, style } = await req.json();
 
+    if (!prompt) {
+      throw new Error("Prompt is required");
+    }
+
     const enhancedPrompt = `${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Professional, high-quality design.`;
 
     // Use Pollinations.ai - free, no API key required
+    // Images are generated on-the-fly when the URL is accessed
     const encodedPrompt = encodeURIComponent(enhancedPrompt);
     const seed = Math.floor(Math.random() * 999999999);
     const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${seed}&nologo=true`;
-
-    // Verify the image URL is accessible
-    const checkResponse = await fetch(imageUrl, { method: "HEAD" });
-    
-    if (!checkResponse.ok) {
-      console.error("Pollinations API error:", checkResponse.status);
-      throw new Error(`Image generation failed: ${checkResponse.status}`);
-    }
 
     return new Response(JSON.stringify({ imageUrl, description: `Generated image: ${prompt}` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
