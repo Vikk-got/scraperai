@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,34 +12,86 @@ serve(async (req) => {
 
   try {
     const { prompt, brandColors, style } = await req.json();
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    
+    if (!OPENROUTER_API_KEY) {
+      throw new Error("OPENROUTER_API_KEY is not configured");
+    }
 
     if (!prompt) {
       throw new Error("Prompt is required");
     }
 
-    const enhancedPrompt = `${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} Professional, high-quality design.`;
+    const enhancedPrompt = `Create a professional image: ${prompt}. ${brandColors ? `Use these brand colors: ${brandColors}.` : ''} ${style ? `Style: ${style}.` : 'Modern and clean aesthetic.'} High-quality, professional design.`;
 
-    // Use Pollinations.ai - free, no API key required
-    const encodedPrompt = encodeURIComponent(enhancedPrompt);
-    const seed = Math.floor(Math.random() * 999999999);
-    const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${seed}&nologo=true`;
+    console.log("Generating image with OpenRouter...");
 
-    console.log("Fetching image from Pollinations:", pollinationsUrl);
+    // Use OpenRouter's image generation with Gemini Flash Image model
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://lovable.dev",
+        "X-Title": "Phoenix Image Generator",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.0-flash-exp:free",
+        messages: [
+          { 
+            role: "user", 
+            content: enhancedPrompt
+          }
+        ],
+        modalities: ["image", "text"],
+      }),
+    });
 
-    // Fetch the actual image and wait for it to be generated
-    const imageResponse = await fetch(pollinationsUrl);
-    
-    if (!imageResponse.ok) {
-      console.error("Pollinations error:", imageResponse.status);
-      throw new Error(`Image generation failed: ${imageResponse.status}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("OpenRouter error:", response.status, errorText);
+      
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Image generation failed: ${response.status}`);
     }
 
-    // Get the image as array buffer and convert to base64
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const base64Image = base64Encode(new Uint8Array(imageBuffer));
-    const imageUrl = `data:image/png;base64,${base64Image}`;
+    const data = await response.json();
+    console.log("OpenRouter response received");
 
-    console.log("Image generated successfully, size:", imageBuffer.byteLength);
+    // Extract image from response - OpenRouter returns images in the message
+    const message = data.choices?.[0]?.message;
+    let imageUrl = null;
+
+    // Check for images array in the message
+    if (message?.images && message.images.length > 0) {
+      imageUrl = message.images[0]?.image_url?.url || message.images[0]?.url;
+    }
+    
+    // Check for inline image in content (base64)
+    if (!imageUrl && message?.content) {
+      // Some models return base64 directly in content
+      const base64Match = message.content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/);
+      if (base64Match) {
+        imageUrl = base64Match[0];
+      }
+    }
+
+    if (!imageUrl) {
+      console.log("No image in response, returning text description");
+      // If no image, return a placeholder message
+      return new Response(JSON.stringify({ 
+        error: "This model doesn't support image generation. Try upgrading to a paid image model.",
+        description: message?.content 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     return new Response(JSON.stringify({ imageUrl, description: `Generated image: ${prompt}` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
