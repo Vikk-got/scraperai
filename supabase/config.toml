@@ -1,4 +1,4 @@
-project_id = "zirhlowtjawtqtyrwudk"
+project_id = ""
 
 [functions.generate-content]
 verify_jwt = false
